@@ -10,6 +10,7 @@ export function initStatsPage() {
     const sideFilterBtns = document.querySelectorAll('.controls .btn[data-side-filter]');
     const matchTypeFilterBtns = document.querySelectorAll('.controls .btn[data-type-filter]');
     const opponentFilterSelect = document.getElementById('opponent-filter');
+    const roleFilterSelect = document.getElementById('role-filter');
     const patchFilterContainer = document.getElementById('patch-filter-container');
     const tableHeaders = document.querySelectorAll('#stats-table th.sortable');
     const modal = document.getElementById('synergy-modal');
@@ -46,104 +47,6 @@ export function initStatsPage() {
         return matches;
     };
 
-    const renderTable = (stats) => {
-        let statsArray = Object.entries(stats).map(([hero, data]) => {
-            const totalGames = data.wins + data.losses;
-            const winrate = totalGames > 0 ? ((data.wins / totalGames) * 100) : 0;
-            const presence = data.picks + data.bans;
-            return { hero, ...data, winrate, presence, totalGames };
-        });
-
-        statsArray.sort((a, b) => {
-            let vA = a[sortKey], vB = b[sortKey];
-            if (sortKey === 'hero') {
-                vA = a.hero.toLowerCase();
-                vB = b.hero.toLowerCase();
-            }
-            if (vA < vB) return sortDirection === 'asc' ? -1 : 1;
-            if (vA > vB) return sortDirection === 'asc' ? 1 : -1;
-            return b.totalGames - a.totalGames;
-        });
-
-        statsTbody.innerHTML = '';
-        statsArray.forEach(data => {
-            const row = document.createElement('tr');
-            row.innerHTML = `<td class="hero-cell"><img src="${ui.getHeroIconUrl(data.hero)}" alt="${data.hero}" class="hero-icon"><span class="hero-name-clickable" data-hero="${data.hero}">${data.hero}</span></td><td>${data.presence}</td><td>${data.totalGames}</td><td>${data.wins}-${data.losses}</td><td>${data.winrate.toFixed(1)}%</td><td>${data.picks}</td><td>${data.bans}</td>`;
-            statsTbody.appendChild(row);
-        });
-
-        tableHeaders.forEach(th => {
-            th.classList.remove('sorted-asc', 'sorted-desc');
-            if (th.dataset.sortKey === sortKey) {
-                th.classList.add(sortDirection === 'asc' ? 'sorted-asc' : 'sorted-desc');
-            }
-        });
-    };
-    
-    const calculateAndRenderStats = () => {
-        if (patchFilterContainer.querySelectorAll('input:checked').length === 0) {
-            ui.displayEmptyState(statsTbody, 'Выберите хотя бы один патч для анализа.');
-            return;
-        }
-        ui.displayLoading(statsTbody);
-        setTimeout(() => {
-            currentlyFilteredMatches = getFilteredMatches();
-            if (currentlyFilteredMatches.length === 0) {
-                ui.displayEmptyState(statsTbody, 'Нет матчей, соответствующих выбранным фильтрам.');
-                tableHeaders.forEach(th => th.classList.remove('sorted-asc', 'sorted-desc'));
-                return;
-            }
-            const stats = {};
-            const ensureHeroInStats = (hero) => {
-                if (!stats[hero]) {
-                    stats[hero] = { picks: 0, bans: 0, wins: 0, losses: 0 };
-                }
-            };
-            currentlyFilteredMatches.forEach(match => {
-                const processPicks = (picks, isOurTeam) => {
-                    picks.forEach(p => {
-                        const hero = store.getH(p);
-                        if (!hero) return;
-                        ensureHeroInStats(hero);
-                        stats[hero].picks++;
-                        if (isOurTeam) {
-                            match.result === 'win' ? stats[hero].wins++ : stats[hero].losses++;
-                        } else if (currentFilter !== 'our_team') {
-                            match.result === 'loss' ? stats[hero].wins++ : stats[hero].losses++;
-                        }
-                    });
-                };
-                const processBans = (bans) => {
-                    bans.forEach(b => {
-                        const hero = store.getH(b);
-                        if (!hero) return;
-                        ensureHeroInStats(hero);
-                        stats[hero].bans++;
-                    });
-                };
-                const ourSide = match.our_team_side;
-                const oppSide = ourSide === 'blue' ? 'red' : 'blue';
-                if (currentFilter === 'our_team' || currentFilter === 'overall') {
-                    if (currentSideFilter === 'all' || currentSideFilter === ourSide) {
-                        processPicks(match.picks.our_team, true);
-                        processBans(match.bans.our_team);
-                    }
-                }
-                if (currentFilter === 'opponent_team' || currentFilter === 'overall') {
-                    if (currentSideFilter === 'all' || currentSideFilter === oppSide) {
-                        processPicks(match.picks.opponent_team, false);
-                        processBans(match.bans.opponent_team);
-                    }
-                }
-            });
-            if (Object.keys(stats).length === 0) {
-                ui.displayEmptyState(statsTbody, `В отфильтрованных матчах нет пиков или банов по фильтру "${currentFilter}".`);
-                return;
-            }
-            renderTable(stats);
-        }, 50);
-    };
-
     const openSynergyModal = (heroName) => {
         modalHeroName.innerHTML = `<img src="${ui.getHeroIconUrl(heroName)}" class="hero-icon" alt=""> ${heroName}`;
         const roleStats = {}, synergy = {}, matchups = {}, draft = { blue: {}, red: {} };
@@ -166,13 +69,13 @@ export function initStatsPage() {
 
             if (ourPicks.includes(heroName)) {
                 const teamWon = match.result === 'win';
-                ourPicks.forEach(t => { if(t !== heroName) { synergy[t] = synergy[t] || {g:0,w:0}; synergy[t].g++; if(teamWon) synergy[t].w++; } });
-                oppPicks.forEach(o => { matchups[o] = matchups[o] || {g:0,w:0}; matchups[o].g++; if(teamWon) matchups[o].w++; });
+                ourPicks.forEach(t => { if(t !== heroName && t) { synergy[t] = synergy[t] || {g:0,w:0}; synergy[t].g++; if(teamWon) synergy[t].w++; } });
+                oppPicks.forEach(o => { if(o) { matchups[o] = matchups[o] || {g:0,w:0}; matchups[o].g++; if(teamWon) matchups[o].w++; } });
             }
             if (oppPicks.includes(heroName)) {
                 const teamWon = match.result === 'loss';
-                oppPicks.forEach(t => { if(t !== heroName) { synergy[t] = synergy[t] || {g:0,w:0}; synergy[t].g++; if(teamWon) synergy[t].w++; } });
-                ourPicks.forEach(o => { matchups[o] = matchups[o] || {g:0,w:0}; matchups[o].g++; if(teamWon) matchups[o].w++; });
+                oppPicks.forEach(t => { if(t !== heroName && t) { synergy[t] = synergy[t] || {g:0,w:0}; synergy[t].g++; if(teamWon) synergy[t].w++; } });
+                ourPicks.forEach(o => { if(o) { matchups[o] = matchups[o] || {g:0,w:0}; matchups[o].g++; if(teamWon) matchups[o].w++; } });
             }
 
             const allDraft = [...match.picks.our_team, ...match.bans.our_team, ...match.picks.opponent_team, ...match.bans.opponent_team];
@@ -225,17 +128,140 @@ export function initStatsPage() {
         modal.style.display = 'flex';
     };
 
-    statsTbody.addEventListener('click', e => {
-        if (e.target.closest('.hero-name-clickable')) {
-            openSynergyModal(e.target.closest('.hero-name-clickable').dataset.hero);
+    const calculateAndRenderStats = () => {
+        if (patchFilterContainer.querySelectorAll('input:checked').length === 0) {
+            ui.displayEmptyState(statsTbody, 'Выберите хотя бы один патч для анализа.');
+            return;
         }
-    });
+        ui.displayLoading(statsTbody);
+        setTimeout(() => {
+            currentlyFilteredMatches = getFilteredMatches();
+            const selectedRole = roleFilterSelect.value;
+            
+            if (currentlyFilteredMatches.length === 0) {
+                ui.displayEmptyState(statsTbody, 'Нет матчей, соответствующих выбранным фильтрам.');
+                tableHeaders.forEach(th => th.classList.remove('sorted-asc', 'sorted-desc'));
+                return;
+            }
 
+            const stats = {};
+            const ensureHeroInStats = (hero) => {
+                if (!stats[hero]) {
+                    stats[hero] = { picks: 0, bans: 0, wins: 0, losses: 0 };
+                }
+            };
+            
+            currentlyFilteredMatches.forEach(match => {
+                const processPicks = (picks, isOurTeam) => {
+                    picks.forEach(p => {
+                        const hero = store.getH(p);
+                        if (!hero) return;
+
+                        // ИСПРАВЛЕНО: Если выбрана роль, пропускаем пик, если роль не совпадает
+                        if (selectedRole !== 'all' && p.role !== selectedRole) {
+                           return;
+                        }
+
+                        ensureHeroInStats(hero);
+                        stats[hero].picks++;
+                        if (isOurTeam) {
+                            match.result === 'win' ? stats[hero].wins++ : stats[hero].losses++;
+                        } else if (currentFilter !== 'our_team') {
+                            match.result === 'loss' ? stats[hero].wins++ : stats[hero].losses++;
+                        }
+                    });
+                };
+                
+                const processBans = (bans) => {
+                    // ИСПРАВЛЕНО: Если выбрана роль, мы не считаем баны вообще
+                    if (selectedRole !== 'all') {
+                        return;
+                    }
+                    bans.forEach(b => {
+                        const hero = store.getH(b);
+                        if (!hero) return;
+                        ensureHeroInStats(hero);
+                        stats[hero].bans++;
+                    });
+                };
+
+                const ourSide = match.our_team_side;
+                const oppSide = ourSide === 'blue' ? 'red' : 'blue';
+
+                if (currentFilter === 'our_team' || currentFilter === 'overall') {
+                    if (currentSideFilter === 'all' || currentSideFilter === ourSide) {
+                        processPicks(match.picks.our_team, true);
+                        processBans(match.bans.our_team);
+                    }
+                }
+                if (currentFilter === 'opponent_team' || currentFilter === 'overall') {
+                    if (currentSideFilter === 'all' || currentSideFilter === oppSide) {
+                        processPicks(match.picks.opponent_team, false);
+                        processBans(match.bans.opponent_team);
+                    }
+                }
+            });
+            
+            let statsArray = Object.entries(stats).map(([hero, data]) => {
+                const totalGames = data.wins + data.losses;
+                const winrate = totalGames > 0 ? ((data.wins / totalGames) * 100) : 0;
+                const totalPicksAndBans = data.picks + data.bans;
+                return { hero, ...data, winrate, presence: totalPicksAndBans, totalGames };
+            });
+
+            // ИСПРАВЛЕНО: Фильтруем героев, у которых нет пиков (если выбрана роль, банов и так не будет)
+            statsArray = statsArray.filter(data => data.picks > 0);
+            
+            if (statsArray.length === 0) {
+                 ui.displayEmptyState(statsTbody, `В отфильтрованных матчах нет данных по выбранным фильтрам.`);
+                 return;
+            }
+
+            statsArray.sort((a, b) => {
+                // Приоритет сортировки меняется при выборе роли
+                const defaultSortKey = selectedRole !== 'all' ? 'totalGames' : 'presence';
+                const currentSortKey = sortKey === 'presence' && selectedRole !== 'all' ? defaultSortKey : sortKey;
+
+                let vA = a[currentSortKey], vB = b[currentSortKey];
+                if (currentSortKey === 'hero') { vA = a.hero.toLowerCase(); vB = b.hero.toLowerCase(); }
+                if (vA < vB) return sortDirection === 'asc' ? -1 : 1;
+                if (vA > vB) return sortDirection === 'asc' ? 1 : -1;
+                return b.totalGames - a.totalGames;
+            });
+            
+            statsTbody.innerHTML = '';
+            const fragment = document.createDocumentFragment();
+            statsArray.forEach(data => {
+                const row = document.createElement('tr');
+                // ИСПРАВЛЕНО: При выборе роли "Присутствие" и "Баны" будут равны 0. Это ожидаемо.
+                row.innerHTML = `<td class="hero-cell"><img src="${ui.getHeroIconUrl(data.hero)}" alt="${data.hero}" class="hero-icon"><span class="hero-name-clickable" data-hero="${data.hero}">${data.hero}</span></td><td>${data.presence}</td><td>${data.totalGames}</td><td>${data.wins}-${data.losses}</td><td>${data.winrate.toFixed(1)}%</td><td>${data.picks}</td><td>${data.bans}</td>`;
+                fragment.appendChild(row);
+            });
+            statsTbody.appendChild(fragment);
+
+            statsTbody.querySelectorAll('.hero-name-clickable').forEach(el => {
+                el.addEventListener('click', () => {
+                    openSynergyModal(el.dataset.hero);
+                });
+            });
+
+            tableHeaders.forEach(th => {
+                th.classList.remove('sorted-asc', 'sorted-desc');
+                const currentSortKey = sortKey === 'presence' && selectedRole !== 'all' ? 'totalGames' : sortKey;
+                if (th.dataset.sortKey === currentSortKey) {
+                    th.classList.add(sortDirection === 'asc' ? 'sorted-asc' : 'sorted-desc');
+                }
+            });
+
+        }, 50);
+    };
+    
+    // ... (весь остальной код функции без изменений) ...
     modalCloseBtn.addEventListener('click', () => modal.style.display = 'none');
     modal.addEventListener('click', e => {
         if (e.target === modal) modal.style.display = 'none';
     });
-
+    
     const populateOpponentFilter = () => {
         const opponentNames = [...new Set(store.getMatches().map(m => m.opponent_team).filter(Boolean))].sort();
         const currentVal = opponentFilterSelect.value;
@@ -247,7 +273,6 @@ export function initStatsPage() {
             opponentFilterSelect.value = currentVal;
         }
     };
-
     const populatePatchFilter = () => {
         const patches = store.getPatches().sort().reverse();
         const dynamicPatchesContainer = patchFilterContainer;
@@ -262,7 +287,9 @@ export function initStatsPage() {
         document.getElementById('patch-cb-none').checked = true;
         if (patches.length > 0) {
             const latestPatchId = `patch-cb-${patches[0].replace(/\./g, '-')}`;
-            document.getElementById(latestPatchId).checked = true;
+            if (document.getElementById(latestPatchId)) {
+                document.getElementById(latestPatchId).checked = true;
+            }
         }
         patchFilterContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', calculateAndRenderStats));
     };
@@ -280,6 +307,7 @@ export function initStatsPage() {
     setupFilterButtons(sideFilterBtns, (data) => currentSideFilter = data.sideFilter);
     setupFilterButtons(matchTypeFilterBtns, (data) => currentMatchTypeFilter = data.typeFilter);
     opponentFilterSelect.addEventListener('change', calculateAndRenderStats);
+    roleFilterSelect.addEventListener('change', calculateAndRenderStats);
 
     tableHeaders.forEach(th => {
         th.addEventListener('click', () => {

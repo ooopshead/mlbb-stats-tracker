@@ -15,6 +15,62 @@ export function initPlannerPage() {
         opponentNames.forEach(name => opponentSelect.add(new Option(name, name)));
     };
 
+    const renderMatchHistory = (matches, limit = 5) => {
+        const historyContainer = document.getElementById('planner-match-history');
+        if (!historyContainer) return;
+        historyContainer.innerHTML = '';
+
+        const recentMatches = matches
+            .sort((a, b) => new Date(b.date) - new Date(a.date))
+            .slice(0, limit);
+
+        if (recentMatches.length === 0) {
+            historyContainer.innerHTML = '<div class="empty-state" style="padding: 1rem 0;"><p>Нет истории игр с этим соперником.</p></div>';
+            return;
+        }
+
+        const draftToHtml = (draft) => draft.map(item => {
+            const hero = store.getH(item);
+            return `<li><img src="${ui.getHeroIconUrl(hero)}" class="hero-icon" alt="${hero}" title="${hero}"></li>`;
+        }).join('');
+
+        const historyHtml = recentMatches.map(match => {
+            const ourSide = match.our_team_side;
+            const oppSide = ourSide === 'blue' ? 'red' : 'blue';
+
+            const ourPicksHtml = `<ul class="compact-draft-list">${draftToHtml(match.picks.our_team)}</ul>`;
+            const ourBansHtml = `<ul class="compact-draft-list">${draftToHtml(match.bans.our_team)}</ul>`;
+            const oppPicksHtml = `<ul class="compact-draft-list">${draftToHtml(match.picks.opponent_team)}</ul>`;
+            const oppBansHtml = `<ul class="compact-draft-list">${draftToHtml(match.bans.opponent_team)}</ul>`;
+
+            const date = new Date(match.date).toLocaleDateString('ru-RU');
+
+            return `
+                <div class="compact-match-card ${match.result}">
+                    <div class="compact-match-header">
+                        <span class="result ${match.result === 'win' ? 'result-win' : 'result-loss'}">${match.result === 'win' ? 'Победа' : 'Поражение'}</span>
+                        <span class="text-muted">${date}</span>
+                    </div>
+                    <div class="compact-match-body">
+                        <div class="compact-team-draft">
+                            <span class="team-side-badge team-side-${ourSide}">Мы</span>
+                            <div class="draft-row"><strong>Пики:</strong> ${ourPicksHtml}</div>
+                            <div class="draft-row"><strong>Баны:</strong> ${ourBansHtml}</div>
+                        </div>
+                        <div class="compact-team-draft">
+                            <span class="team-side-badge team-side-${oppSide}">Они</span>
+                            <div class="draft-row"><strong>Пики:</strong> ${oppPicksHtml}</div>
+                            <div class="draft-row"><strong>Баны:</strong> ${oppBansHtml}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        historyContainer.innerHTML = historyHtml;
+    };
+
+
     const renderPlannerData = () => {
         const opponent = opponentSelect.value;
         if (!opponent) {
@@ -28,7 +84,17 @@ export function initPlannerPage() {
         notesArea.value = localStorage.getItem(`planner_notes_${opponent}`) || '';
 
         const matchesVsOpponent = store.getMatches().filter(m => m.opponent_team === opponent);
-        if (matchesVsOpponent.length === 0) return;
+        if (matchesVsOpponent.length === 0) {
+            // Очистка полей, если нет матчей
+            document.getElementById('planner-h2h-stats').innerHTML = '';
+            document.getElementById('planner-side-stats').innerHTML = '';
+            document.getElementById('planner-opponent-signatures').innerHTML = '<tr><td colspan="3"><div class="empty-state" style="padding:10px 0">Нет данных</div></td></tr>';
+            document.getElementById('planner-opponent-synergy').innerHTML = '<tr><td colspan="3"><div class="empty-state" style="padding:10px 0">Нет данных</div></td></tr>';
+            document.getElementById('planner-opponent-roles').innerHTML = '';
+            document.getElementById('planner-pick-advice').innerHTML = '';
+            renderMatchHistory([]);
+            return;
+        }
 
         const totalGames = matchesVsOpponent.length;
         const wins = matchesVsOpponent.filter(m => m.result === 'win').length;
@@ -74,12 +140,20 @@ export function initPlannerPage() {
         const signatures = Object.entries(oppPicks).map(([h, s]) => ({ h, p: s.p, wr: s.p > 0 ? (s.w / s.p * 100) : 0 })).sort((a, b) => (b.p) - (a.p)).slice(0, 10);
         const sigBody = document.getElementById('planner-opponent-signatures');
         sigBody.innerHTML = '';
-        signatures.forEach(d => { const r = document.createElement('tr'); r.innerHTML = `<td class="hero-cell"><img src="${ui.getHeroIconUrl(d.h)}" class="hero-icon"> ${d.h}</td><td>${d.p}</td><td class="${d.wr >= 50 ? 'win' : 'loss'}">${d.wr.toFixed(1)}%</td>`; sigBody.appendChild(r); });
+        if (signatures.length > 0) {
+            signatures.forEach(d => { const r = document.createElement('tr'); r.innerHTML = `<td class="hero-cell"><img src="${ui.getHeroIconUrl(d.h)}" class="hero-icon"> ${d.h}</td><td>${d.p}</td><td class="${d.wr >= 50 ? 'win' : 'loss'}">${d.wr.toFixed(1)}%</td>`; sigBody.appendChild(r); });
+        } else {
+             sigBody.innerHTML = '<tr><td colspan="3"><div class="empty-state" style="padding:10px 0">Нет данных</div></td></tr>';
+        }
 
         const synergy = Object.entries(oppSynergy).map(([p, s]) => ({ p, g: s.g, wr: s.g > 0 ? (s.w / s.g * 100) : 0 })).filter(d => d.g > 1).sort((a, b) => (b.g * b.wr) - (a.g * a.wr)).slice(0, 10);
         const synBody = document.getElementById('planner-opponent-synergy');
         synBody.innerHTML = '';
-        synergy.forEach(d => { const r = document.createElement('tr'); const heroes = d.p.split('+'); r.innerHTML = `<td><div class="hero-list-item-info"><img src="${ui.getHeroIconUrl(heroes[0])}" class="hero-icon"> + <img src="${ui.getHeroIconUrl(heroes[1])}" class="hero-icon"></div></td><td>${d.g}</td><td class="${d.wr >= 50 ? 'win' : 'loss'}">${d.wr.toFixed(1)}%</td>`; synBody.appendChild(r); });
+        if(synergy.length > 0) {
+            synergy.forEach(d => { const r = document.createElement('tr'); const heroes = d.p.split('+'); r.innerHTML = `<td><div class="hero-list-item-info"><img src="${ui.getHeroIconUrl(heroes[0])}" class="hero-icon"> + <img src="${ui.getHeroIconUrl(heroes[1])}" class="hero-icon"></div></td><td>${d.g}</td><td class="${d.wr >= 50 ? 'win' : 'loss'}">${d.wr.toFixed(1)}%</td>`; synBody.appendChild(r); });
+        } else {
+            synBody.innerHTML = '<tr><td colspan="3"><div class="empty-state" style="padding:10px 0">Нет данных</div></td></tr>';
+        }
 
         const rolesOrder = ['EXP', 'JUNGLE', 'MID', 'ROAM', 'GOLD'];
         const roleContainer = document.getElementById('planner-opponent-roles');
@@ -144,13 +218,39 @@ export function initPlannerPage() {
             adviceContainer.appendChild(adviceBlock);
         });
         if (adviceContainer.innerHTML === '') adviceContainer.innerHTML = '<div class="empty-state" style="padding:0;"><p>Недостаточно данных для советов.</p></div>'
+
+        // Вызываем рендер истории и навешиваем обработчики
+        const defaultLimit = 5;
+        renderMatchHistory(matchesVsOpponent, defaultLimit);
+
+        const limitButtons = document.querySelectorAll('#planner-content .btn[data-limit]');
+        limitButtons.forEach(btn => {
+            // Сначала удаляем старые обработчики, чтобы избежать дублирования
+            const newBtn = btn.cloneNode(true);
+            btn.parentNode.replaceChild(newBtn, btn);
+
+            // Устанавливаем активную кнопку
+            if(parseInt(newBtn.dataset.limit, 10) === defaultLimit) {
+                newBtn.classList.add('active');
+            } else {
+                newBtn.classList.remove('active');
+            }
+
+            // Добавляем новый обработчик
+            newBtn.addEventListener('click', () => {
+                document.querySelectorAll('#planner-content .btn[data-limit]').forEach(b => b.classList.remove('active'));
+                newBtn.classList.add('active');
+                const limit = parseInt(newBtn.dataset.limit, 10);
+                renderMatchHistory(matchesVsOpponent, limit);
+            });
+        });
     };
 
     notesArea.addEventListener('input', () => {
         const opponent = opponentSelect.value;
         if (opponent) localStorage.setItem(`planner_notes_${opponent}`, notesArea.value);
     });
-    
+
     populateOpponentSelect();
     opponentSelect.addEventListener('change', renderPlannerData);
 }
